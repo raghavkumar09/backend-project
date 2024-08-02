@@ -40,7 +40,7 @@ const userSchema = new Schema({
         type: String,
         required: [true, 'Password is required'],
     },
-    refresshToken: {
+    refreshToken: {
         type: String
     }
 }, {
@@ -60,12 +60,14 @@ userSchema.methods.isPasswordCorrect = async function (password) {
 };
 
 userSchema.methods.generateAccessToken = function () {
-    return jwt.sign({
-        _id: this._id,
-        username: this.username,
-        email: this.email,
-        fullName: this.fullName
-    }, process.env.ACCESS_TOKEN, { expiresIn: process.env.ACCESS_TOKEN_EXPIRE })
+    return jwt.sign(
+        {
+            _id: this._id,
+            username: this.username,
+            email: this.email,
+            fullName: this.fullName
+        }, process.env.ACCESS_TOKEN, { expiresIn: process.env.ACCESS_TOKEN_EXPIRE }
+    )
 }
 
 userSchema.methods.generateRefreshToken = function () {
