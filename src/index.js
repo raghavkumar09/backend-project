@@ -1,5 +1,6 @@
 import 'dotenv/config'
 import connectionDB from './db/index.js'
+import { app } from './app.js'
 
 connectionDB()
 .then(() => {
