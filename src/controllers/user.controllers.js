@@ -4,6 +4,7 @@ import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { uploadOnCloudinary } from "../utils/cloudinary.js";
 import jwt from "jsonwebtoken"
+import mongoose from "mongoose";
 
 const generateAccessTokenAndRefreshToken = async (userId) => {
     try {
@@ -193,7 +194,6 @@ const logoutUser = asyncHandler(async (req, res) => {
     )
 })
 
-
 const refreshAccessToken = asyncHandler(async (req, res) => {
     const refreshToken = req.cookies.refreshToken || req.body.refreshToken;
 
@@ -311,6 +311,8 @@ const updateAvatar = asyncHandler(async (req, res) => {
 
     const avatar = await uploadOnCloudinary(avatarLocalPath)
 
+    // delete old avatar - pending
+
     if (!avatar.url) {
         throw new ApiError(400, "Avatar upload failed")
     }
@@ -343,6 +345,8 @@ const updateCoverImage = asyncHandler(async (req, res) => {
 
     const coverImage = await uploadOnCloudinary(coverImageLocalPath)
 
+    // delete old cover image
+
     if (!coverImage.url) {
         throw new ApiError(400, "Cover image upload failed")
     }
@@ -366,6 +370,165 @@ const updateCoverImage = asyncHandler(async (req, res) => {
         )
 })
 
+/** getUserChannelProfile
+ @param {string} username
+ @returns {Promise<User>}
+ @throws {ApiError}
+ @database 
+    @aggregate
+        @match - that take to match username
+        @lookup - to get subscribers and subscribedTo
+        @addFields - to add subscribersCount and subscribedToCount and isSubscribed to the user
+        @project - to project only username, subscribersCount, subscribedToCount, isSubscribed fields that visible to user
+ **/
+const getUserChannelProfile = asyncHandler(async (req, res) => {
+    const { username } = req.params
+
+    if (!username?.trim()) {
+        throw new ApiError(400, "Missing username")
+    }
+
+    const channel = await User.aggregate([
+        {
+            $match: {
+                username
+            }
+        },
+        {
+            $lookup: {
+                from: "Subscription",
+                localField: "_id",
+                foreignField: "channel",
+                as: "subscribers"
+            }
+        },
+        {
+            $lookup: {
+                from: "Subscription",
+                localField: "_id",
+                foreignField: "subscriber",
+                as: "subscribedTo"
+            }
+        },
+        {
+            $addFields: {
+                subscribersCount: {
+                    $size: "$subscribers"
+                },
+                subscribedToCount: {
+                    $size: "$subscribedTo"
+                },
+                isSubscribed: {
+                    $condition: {
+                        if: {
+                            $in: [
+                                req.user?._id,
+                                "$subscribers.subscriber"
+                            ]
+                        },
+                        then: true,
+                        else: false
+                    }
+                }
+            }
+        },
+        {
+            $project: {
+                fullName: 1,
+                username: 1,
+                email: 1,
+                avatar: 1,
+                coverImage: 1,
+                subscribersCount: 1,
+                subscribedToCount: 1,
+                isSubscribed: 1
+            }
+        }
+    ])
+
+    if (!channel?.length) {
+        throw new ApiError(404, "Channel not found")
+    }
+
+    return res
+        .status(200)
+        .json(
+            new ApiResponse(
+                200,
+                channel[0],
+                "Channel profile fetched successfully"
+            )
+        )
+})
+
+/** getWatchHistory
+ @param {string} username
+ @returns {Promise<User>}
+ @throws {ApiError}
+ @database 
+    @aggregate
+        @match - that take to match username
+        @lookup - to get subscribers and subscribedTo
+        @addFields - to add owner field and send object instead of array
+        @project - to project only username, subscribersCount, subscribedToCount, isSubscribed fields that visible to user
+ **/
+const getWatchHistory = asyncHandler(async (req, res) => {
+    const user = await User.aggregate([
+        {
+            $match: {
+                _id: mongoose.Types.ObjectId(req.user._id)
+            }
+        },
+        {
+            $lookup: {
+                from: "Video",
+                localField: "watchHistory",
+                foreignField: "_id",
+                as: "watchHistory",
+                pipeline: [
+                    {
+                        $lookup: {
+                            from: "User",
+                            localField: "owner",
+                            foreignField: "_id",
+                            as: "owner",
+                            pipeline: [
+                                {
+                                    $project: {
+                                        fullName: 1,
+                                        username: 1,
+                                        avatar: 1
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        $addFields: {
+                            owner: {
+                                $first: "$owner"
+                            }   
+                        }
+                    }
+                ]
+            }
+        }
+    ])
+
+    if (!user?.length) {
+        throw new ApiError(404, "User not found")
+    }
+
+    return res
+        .status(200)
+        .json(
+            new ApiResponse(
+                200,
+                user[0].watchHistory,
+                "Watch history fetched successfully"
+            )
+        )
+})
 
 export { 
     registerUser, 
@@ -376,5 +539,7 @@ export {
     currentUser,
     accountDetailsUpdate,
     updateAvatar,
-    updateCoverImage
+    updateCoverImage,
+    getUserChannelProfile,
+    getWatchHistory
 }
